@@ -1,0 +1,525 @@
+---
+title: "Econometrics- Interim Assignment 2 Notebook"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r}
+# Clear the environment
+rm(list = ls())  # Remove all objects from the environment
+
+# Clear the console
+cat("\014")  # Clears the console screen
+```
+
+# Initial MLR
+
+```{r}
+#######MLR#######
+
+# Install packages
+PackageNames <- c("reticulate", "tidyverse", "stargazer", "magrittr", "car", "foreign", "janitor", "lmtest", "GGally", "reshape2", "viridis")
+for(i in PackageNames){
+  if(!require(i, character.only = T)){
+    install.packages(i, dependencies = T)
+    require(i, character.only = T)
+  }
+}
+
+#Import Data and Cleansing
+{
+  options("scipen" = 10)
+  options()$scipen
+  dat<- read.csv("C:/Users/rites/Music/Eco_Data.csv", header = TRUE)
+  finances <- remove_empty(dat, which = c("rows", "cols"), cutoff = 1, quiet = TRUE)
+  str(finances)
+  colnames(finances) <- c('FY','Rnd','GrossProfit','NetSales','TotalOperatingExpense','OperatingIncome')
+  print(finances)
+  
+}
+
+#Converting all the values to numeric
+{
+# Convert all character columns to numeric
+finances[] <- lapply(finances, function(x) if(is.character(x)) as.numeric(gsub(",", "", x)) else x)
+
+# Check structure after conversion
+str(finances)
+}
+
+# Estimate three different models
+model1<- lm(OperatingIncome ~ GrossProfit, data=finances)
+model2<- lm(OperatingIncome ~ GrossProfit + NetSales, data=finances)
+model3<- lm(OperatingIncome ~ GrossProfit + NetSales + TotalOperatingExpense + Rnd, data=finances)
+summary(model1)
+summary(model2)
+summary(model3)
+
+# Load package and display table of results
+library(stargazer)
+stargazer(list(model1,model2,model3),type="text",keep.stat=c("n","rsq"))
+
+# Calculating the Akaike Information Criterion (AIC)
+AIC(model1)
+AIC(model2)
+AIC(model3)  
+
+# Run Regression
+model <- lm(OperatingIncome ~ GrossProfit + NetSales + TotalOperatingExpense + Rnd, finances)
+summary(model)
+
+# Hypothesis testing method 1: compare t-statistic with t-critical value(s)
+(coefficient <- coef(model)["NetSales"])
+(se <- vcov(model) %>% diag %>% sqrt %>% .["NetSales"])  #Standard error of 'NetSales'
+(tstat <- coefficient / se)  # t-statistic
+
+# Degrees of freedom (n-k-1)
+(df_r <- model$df.residual)
+
+# t-critical value at 5% significance level
+qt(p = 0.975, df = df_r, lower.tail = TRUE)
+
+# Hypothesis testing method 2: compare p-value with significance level (5%)
+p_value <- 2 * pt(q = abs(tstat), df = df_r, lower.tail = FALSE)
+
+# Hypothesis testing method 3: calculate confidence intervals
+CT5 = qt(p = 0.975, df = df_r)  # Critical value at 5%
+lower_bound <- coefficient - CT5 * se  # Lower bound at 95% confidence level
+upper_bound <- coefficient + CT5 * se  # Upper bound at 95% confidence level
+
+# F-test for single coefficient significance ---------------------------
+model_r1 <- lm(OperatingIncome ~ GrossProfit + TotalOperatingExpense + Rnd, finances)  # Restricted model
+(ssr_r1 <- sum(resid(model_r1)^2))  # SSR for the restricted model
+(df_r1 <- model_r1$df.residual)
+model_ur <- model# Unrestricted model
+print(model_ur)
+print(model_r1)
+(ssr_ur <- sum(resid(model_ur)^2))  # SSR for the unrestricted model
+(df_ur <- model_ur$df.residual)  # Degrees of freedom for unrestricted model
+
+cat("\nF-stat\n")
+# Calculate F-stat using ssr_r and ssr_ur
+F_stat <- ((ssr_r1 - ssr_ur) / 1) / (ssr_ur / df_ur)
+print(F_stat)
+# Calculate F-critical value
+cat("\nF-critical\n")
+F_critical <- qf(p = 0.95, df1 = 1, df2 = df_ur)
+print(F_critical)
+# p-value for F-test
+F_pvalue <- pf(q = F_stat, df1 = 1, df2 = df_ur, lower.tail = FALSE)
+cat("\np-value\n")
+print(F_pvalue)
+```
+
+# Checking for multicollinearity (excluding the dependent variable)
+
+```{r}
+X <- finances[, c('GrossProfit','NetSales','TotalOperatingExpense','Rnd')]
+
+# Add an intercept column to match the regression model
+X <- cbind(Intercept = 1, X)
+
+# Compute VIF
+vif_values <- vif(model)  # Using 'car' package function
+print(vif_values)
+```
+
+# Column Changes due to high VIF implying multicolinearity
+
+```{r}
+finances$ProfitperSales <- ifelse(finances$NetSales == 0, NA, finances$GrossProfit/finances$NetSales)
+finances$OpsExperSales <- ifelse(finances$NetSales == 0, NA, finances$TotalOperatingExpense/finances$NetSales)
+finances$RndperExp <- ifelse(finances$TotalOperatingExpense == 0, NA, finances$Rnd/finances$TotalOperatingExpense)
+
+str(finances)
+```
+
+# Removing Redundancy
+
+```{r}
+library(dplyr)
+
+finances <- finances %>%
+  select(-TotalOperatingExpense, -NetSales, -GrossProfit, -Rnd)  # Remove specific columns
+
+```
+
+# Modelling it again
+
+```{r}
+#######MLR#######
+
+#Import Data and Cleansing
+{
+  options("scipen" = 10)
+  options()$scipen
+  str(finances)
+  print(finances)
+}
+
+# Run Regression
+model <- lm(OperatingIncome ~ ProfitperSales + OpsExperSales + RndperExp, finances)
+summary(model)
+
+# Hypothesis testing method 1: compare t-statistic with t-critical value(s)
+(coefficient <- coef(model)["RndperExp"])
+(se <- vcov(model) %>% diag %>% sqrt %>% .["RndperExp"])  #Standard error of 'NetSales'
+(tstat <- coefficient / se)  # t-statistic
+
+# Degrees of freedom (n-k-1)
+(df_r <- model$df.residual)
+
+# t-critical value at 5% significance level
+qt(p = 0.975, df = df_r, lower.tail = TRUE)
+
+# Hypothesis testing method 2: compare p-value with significance level (5%)
+p_value <- 2 * pt(q = abs(tstat), df = df_r, lower.tail = FALSE)
+
+# Hypothesis testing method 3: calculate confidence intervals
+CT5 = qt(p = 0.975, df = df_r)  # Critical value at 5%
+lower_bound <- coefficient - CT5 * se  # Lower bound at 95% confidence level
+upper_bound <- coefficient + CT5 * se  # Upper bound at 95% confidence level
+
+# F-test for single coefficient significance ---------------------------
+model_r1 <- lm(OperatingIncome ~ ProfitperSales + OpsExperSales, finances)  # Restricted model
+(ssr_r1 <- sum(resid(model_r1)^2))  # SSR for the restricted model
+(df_r1 <- model_r1$df.residual)
+model_ur <- model# Unrestricted model
+print(model_ur)
+print(model_r1)
+(ssr_ur <- sum(resid(model_ur)^2))  # SSR for the unrestricted model
+(df_ur <- model_ur$df.residual)  # Degrees of freedom for unrestricted model
+
+cat("\nF-stat\n")
+# Calculate F-stat using ssr_r and ssr_ur
+F_stat <- ((ssr_r1 - ssr_ur) / 1) / (ssr_ur / df_ur)
+print(F_stat)
+# Calculate F-critical value
+cat("\nF-critical\n")
+F_critical <- qf(p = 0.95, df1 = 1, df2 = df_ur)
+print(F_critical)
+# p-value for F-test
+F_pvalue <- pf(q = F_stat, df1 = 1, df2 = df_ur, lower.tail = FALSE)
+cat("\np-value\n")
+print(F_pvalue)
+```
+
+# Multicolinearity second check
+
+```{r}
+str(finances)
+X <- finances[, c('ProfitperSales', 'OpsExperSales', 'RndperExp')]
+
+# Add an intercept column to match the regression model
+X <- cbind(Intercept = 1, X)
+
+# Compute VIF
+vif_values <- vif(model)  # Using 'car' package function
+print(vif_values)
+```
+
+# Removing High VIF columns to remove multicolinearity
+
+```{r}
+library(dplyr)
+
+finances <- finances %>%
+  select(-ProfitperSales, -OpsExperSales)  # Remove specific columns
+str(finances)
+```
+
+# Autocorrelation Check
+
+```{r}
+# 1. Durbin-Watson Test for autocorrelation
+dw_test <- dwtest(model)
+print("Durbin-Watson Test Result:")
+print(dw_test)
+
+# 2. Breusch-Godfrey Test for autocorrelation (Higher order)
+bg_test <- bgtest(model, order = 1)
+print("Breusch-Godfrey Test Result:")
+print(bg_test)
+
+
+```
+
+# Since DW value=1.2, suggesting positive autocorrelation in residuals, but BG p-value is > 0.05 thus no Serial Correlation. This is Time Series data so it is expected, we can ignore this.
+
+
+
+```{r}
+# Load package
+library(ggplot2)
+
+# Plot ACF of residuals
+acf(model$residuals, main="Autocorrelation of Residuals")
+
+
+# Save DataFrame to CSV
+write.csv(finances, "finances_data.csv", row.names = FALSE)
+```
+
+# Now we test for heteroskedascity
+
+```{r}
+# Correlation matrix
+cor_matrix <- cor(finances[, c('RndperExp', 'OperatingIncome')])
+print(cor_matrix)
+
+########### Heteroskedasticity Tests ###########
+
+# 1. Breusch-Pagan LM Test
+cat("\nBreusch-Pagan Test\n")
+bp_test <- bptest(model)
+print(bp_test)
+
+# 2. Glesjer LM Test (Correcting the residuals part)
+cat("\nGlesjer Test\n")
+glesjer_model <- lm(abs(residuals(model)) ~ RndperExp, data=finances)
+summary(glesjer_model)
+
+# 3. Harvey-Godfrey LM Test (log of squared residuals)
+cat("\nHarvey-Godfrey Test\n")
+hg_model <- lm(log(residuals(model)^2) ~ RndperExp, data=finances)
+summary(hg_model)
+
+
+# 4. Goldfeld-Quandt Test
+cat("\nGoldfeld-Quandt Test\n")
+gq_test <- gqtest(model, order.by = ~ RndperExp, data = finances)
+print(gq_test)
+
+# 5. White's Test (testing for heteroskedasticity using squared residuals)
+cat("\nWhite's Test\n")
+white_test <- bptest(model, ~ RndperExp + I(RndperExp^2), data = finances)
+print(white_test)
+
+########### Visualizing Residuals ###########
+par(mfrow = c(1, 2))  # Split plotting area
+{plot(finances$RndperExp, residuals(model), main = "Residuals vs RndperExp", xlab = "RndperExp", ylab = "Residuals")
+abline(h = 0, col = "red")}
+hist(residuals(model), main = "Histogram of Residuals", xlab = "Residuals", col = "blue", breaks = 15)
+
+
+#Remedial measure for heteroskedasticity 
+
+##WLS
+# Estimate weights based on residuals from initial model
+weights <- 1 / residuals(model)^2
+# Fit weighted least squares model
+wls_model <- lm(OperatingIncome ~ RndperExp, data=finances, weights = weights)
+summary(wls_model)
+
+##GLS
+# Install nlme package if not already installed
+#install.packages("nlme")
+#library(nlme)
+# Fit GLS model
+#gls_model <- gls(OperatingIncome ~ Cash + GainLoss + RevperOpEx + FinperRaw + WIPperRaw, data=finances, weights = #varIdent(form = ~1|WIPperRaw))
+#summary(gls_model)
+
+#compare results 
+summary(model)  # OLS model summary
+#summary(gls_model)  # GLS model summary
+summary(wls_model)
+#AIC(gls_model)
+AIC(wls_model)
+```
+
+# Homoskedasticity was found thus we proceed with plot generation as our model is accurate enough.
+
+```{r}
+# Apply log transformation
+finances$Log_OperatingIncome <- log(finances$OperatingIncome)
+
+# Fit the regression with transformed dependent variable
+log_model <- lm(Log_OperatingIncome ~ RndperExp, data=finances)
+
+summary(log_model)
+
+```
+
+#Rechecking for Heteroskedaasticity
+
+```{r}
+bptest(log_model)
+```
+
+#Re-performing MLR
+
+```{r}
+
+# Hypothesis testing method 1: compare t-statistic with t-critical value(s)
+(coefficient <- coef(log_model)["GainLoss"])
+(se <- vcov(log_model) %>% diag %>% sqrt %>% .["GainLoss"])  #Standard error of 'GainLoss'
+(tstat <- coefficient / se)  # t-statistic
+
+# Degrees of freedom (n-k-1)
+(df_r <- log_model$df.residual)
+
+# t-critical value at 5% significance level
+qt(p = 0.975, df = df_r, lower.tail = TRUE)
+
+# Hypothesis testing method 2: compare p-value with significance level (5%)
+p_value <- 2 * pt(q = abs(tstat), df = df_r, lower.tail = FALSE)
+
+# Hypothesis testing method 3: calculate confidence intervals
+CT5 = qt(p = 0.975, df = df_r)  # Critical value at 5%
+lower_bound <- coefficient - CT5 * se  # Lower bound at 95% confidence level
+upper_bound <- coefficient + CT5 * se  # Upper bound at 95% confidence level
+
+# F-test for single coefficient significance ---------------------------
+model_r1 <- lm(Log_OperatingIncome ~ Cash + RevperOpEx + FinperRaw + WIPperRaw, finances)  # Restricted model
+(ssr_r1 <- sum(resid(model_r1)^2))  # SSR for the restricted model
+(df_r1 <- model_r1$df.residual)
+model_ur <- log_model# Unrestricted model
+print(model_ur)
+print(model_r1)
+(ssr_ur <- sum(resid(model_ur)^2))  # SSR for the unrestricted model
+(df_ur <- model_ur$df.residual)  # Degrees of freedom for unrestricted model
+
+cat("\nF-stat\n")
+# Calculate F-stat using ssr_r and ssr_ur
+F_stat <- ((ssr_r1 - ssr_ur) / 1) / (ssr_ur / df_ur)
+print(F_stat)
+# Calculate F-critical value
+cat("\nF-critical\n")
+F_critical <- qf(p = 0.95, df1 = 1, df2 = df_ur)
+print(F_critical)
+# p-value for F-test
+F_pvalue <- pf(q = F_stat, df1 = 1, df2 = df_ur, lower.tail = FALSE)
+cat("\np-value\n")
+print(F_pvalue)
+```
+
+#Redoing Autocorrelation checks
+
+```{r}
+print(dwtest(log_model))
+print(bgtest(log_model))
+```
+
+# Since dwtest value has decreased below acceptable range we need to address it by adding Autoregressive Terms
+
+```{r}
+residuals <- resid(log_model)
+lag_residuals <- c(NA, residuals[-length(residuals)])  # Lag the residuals
+finances$lag_residuals <- lag_residuals
+
+# Fit a new model with the lagged residuals
+log_model_with_lag <- lm(Log_OperatingIncome ~ Cash + GainLoss + RevperOpEx + FinperRaw + WIPperRaw + lag_residuals, data = finances)
+summary(log_model_with_lag)
+
+
+print(dwtest(log_model_with_lag))
+print(bgtest(log_model_with_lag))
+```
+
+# Residual Plots
+
+```{r}
+# Residuals vs Fitted plot
+library(ggplot2)
+
+# Extract fitted values
+fitted_values <- fitted(log_model_with_lag)
+
+# Plot residuals vs fitted values
+plot<-ggplot(data = data.frame(fitted_values, residuals = resid(log_model_with_lag)), aes(x = fitted_values, y = residuals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Residuals vs Fitted Values", x = "Fitted Values", y = "Residuals") +
+  theme_minimal()
+ggsave("resvfit.png", plot = plot, dpi = 300, width = 8, height = 6)
+
+# Q-Q plot for residuals
+plot<-ggplot(data = data.frame(residuals = resid(log_model_with_lag)), aes(sample = residuals)) +
+  stat_qq() +
+  stat_qq_line() +
+  labs(title = "Q-Q Plot of Residuals") +
+  theme_minimal()
+ggsave("qq.png", plot = plot, dpi = 300, width = 8, height = 6)
+```
+
+# Pairplot
+
+```{r}
+# Plot pairplot using GGally's ggpairs function
+library(GGally)
+
+# Select the relevant columns for the pairplot
+data_for_pairplot <- finances[, c("Cash", "GainLoss", "RevperOpEx", "FinperRaw", "WIPperRaw")]
+
+# Create the pairplot
+plot<-ggpairs(data_for_pairplot, 
+        title = "Pairplot of Variables",
+        lower = list(continuous = wrap("points", alpha = 0.3)), 
+        upper = list(continuous = wrap("cor", size = 5))) + 
+  theme(axis.text = element_blank(),   # Hide axis text (numbers)
+        axis.ticks = element_blank())
+ggsave("pairplot.png", plot = plot, dpi = 300, width = 8, height = 6)
+```
+
+# Heatmap
+
+```{r}
+# Compute the correlation matrix
+cor_matrix <- cor(data_for_pairplot)
+
+# Plot the correlation heatmap using the 'corrplot' package
+library(corrplot)
+
+# Plot the heatmap
+corrplot(cor_matrix, method = "circle", type = "lower", 
+         tl.cex = 0.8, tl.col = "black", 
+         addCoef.col = "black", number.cex = 0.7, 
+         main = "Correlation Heatmap")
+
+library(ggplot2)
+library(reshape2)
+library(viridis)
+df_filtered <- finances[, !(names(finances) %in% c("FY", "lag_residuals"))]  # Exclude 'FY' and 'lag_residuals'
+data <- cor(df_filtered[sapply(df_filtered, is.numeric)])  # Correlation matrix
+data1 <- melt(data)  # Melt the correlation matrix for ggplot
+
+# Create the heatmap
+plot<-ggplot(data1, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_viridis(discrete = FALSE) + # Use continuous color scale
+  geom_text(aes(label = round(value, 2)), color = "black", size = 4) +
+  labs(title = "Correlation Heatmap",
+       x = "Variable 1",
+       y = "Variable 2") +
+  theme_minimal() +  # Add minimal theme for better aesthetics
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggsave("correlation_heatmap.png", plot = plot, dpi = 300, width = 8, height = 6)
+```
+
+# Plots
+
+```{r}
+# Visualizing coefficients with their confidence intervals
+coefs <- coef(summary(log_model_with_lag))
+conf_int <- confint(log_model_with_lag)
+
+# Create a plot for the coefficients and their CI
+coef_data <- data.frame(
+  Term = rownames(coefs),
+  Estimate = coefs[, "Estimate"],
+  CI_Lower = conf_int[, 1],
+  CI_Upper = conf_int[, 2]
+)
+
+plot<-ggplot(coef_data, aes(x = Term, y = Estimate)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = CI_Lower, ymax = CI_Upper), width = 0.2) +
+  labs(title = "Coefficients with Confidence Intervals", x = "Terms", y = "Estimate") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggsave("coefficients.png", plot = plot, dpi = 300, width = 8, height = 6)
+```
